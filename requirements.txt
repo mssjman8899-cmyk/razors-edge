@@ -1,7 +1,7 @@
 ccxt>=4.4.0
 pandas>=2.2.0
 numpy>=1.26.0
-git+https://github.com/twopirllc/pandas-ta.git
+pandas-ta
 python-dotenv>=1.0.0
 pyyaml>=6.0
 rich>=13.0.0
