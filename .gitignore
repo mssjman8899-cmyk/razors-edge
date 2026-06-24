@@ -1,0 +1,15 @@
+.env
+.env.local
+.env.*.local
+__pycache__/
+*.pyc
+.DS_Store
+bot.log
+cron_state.json
+trade_journal.jsonl
+.idea/
+.vscode/
+*.egg-info/
+dist/
+build/
+.pytest_cache/

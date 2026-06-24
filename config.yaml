@@ -1,0 +1,53 @@
+# ============================================================
+# Razor's Edge — $30 合约量化剥头皮系统
+# 目标：日收益 5%-10% ($1.50-$3.00)
+# 杠杆：5x | 多交易对 | 高信号门槛
+# ============================================================
+
+account:
+  capital: 30.0
+  leverage: 5                  # 5x 杠杆
+  max_daily_risk: 9.0         # 日最大亏损 30%
+  daily_profit_target: 3.0    # 日目标 10%
+  min_daily_profit: 1.5       # 日最低 5%
+
+risk:
+  risk_per_trade_pct: 0.05    # 单笔风险 5%
+  max_positions: 1
+  max_daily_trades: 20
+  stop_loss_atr_mult: 2.5
+  take_profit_rr: 2.0         # 盈亏比 1:2
+  trailing_stop_pct: 0.005
+  min_stop_pct: 0.0035        # 止损最小 0.35%（略紧，放大仓位）
+
+strategy:
+  name: "razors_edge_v2"
+  timeframe: "5m"
+  trend_timeframe: "1h"
+  ema_fast: 9
+  ema_slow: 21
+  rsi_period: 14
+  rsi_oversold: 30
+  rsi_overbought: 70
+  volume_ma_period: 20
+  volume_spike_mult: 1.8
+  atr_period: 14
+  min_signal_score: 3          # 3 分即可开仓（4分反而过滤了盈利信号）
+  cooldown_bars: 5
+  trend_filter: true
+  direction_filter: ""         # 双向交易（空 ""=多空都做）
+
+trading:
+  exchange: "binance"
+  market_type: "future"
+  proxy: ""
+  symbols:
+    - "BTC/USDT"
+    - "ETH/USDT"               # 加 ETH
+  testnet: false              # 🔥 实盘模式
+  order_type: "market"
+
+display:
+  show_charts: false
+  log_level: "WARNING"
+  profit_emoji: true

@@ -1,0 +1,35 @@
+name: Razor's Edge 24/7
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'  # 每 5 分钟运行
+  workflow_dispatch:
+
+jobs:
+  trade:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install deps
+        run: |
+          pip install -r requirements.txt
+      
+      - name: Run trading check
+        env:
+          BINANCE_API_KEY: ${{ secrets.BINANCE_API_KEY }}
+          BINANCE_SECRET_KEY: ${{ secrets.BINANCE_SECRET_KEY }}
+        run: |
+          python3 scripts/check.py
+      
+      - name: Push state
+        run: |
+          git config user.email "action@github.com"
+          git config user.name "Razor Bot"
+          git add cron_state.json trade_journal.jsonl 2>/dev/null || true
+          git diff --quiet && git diff --staged --quiet || (git commit -m "auto: $(date)" && git push)
