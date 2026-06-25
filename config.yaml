@@ -38,8 +38,8 @@ strategy:
   direction_filter: ""         # 双向交易（空 ""=多空都做）
 
 trading:
-  exchange: "binance"
-  market_type: "future"
+  exchange: "okx"
+  market_type: "swap"
   proxy: ""
   symbols:
     - "BTC/USDT"
