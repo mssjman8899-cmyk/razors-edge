@@ -22,8 +22,9 @@ jobs:
       
       - name: Run trading check
         env:
-          BINANCE_API_KEY: ${{ secrets.BINANCE_API_KEY }}
-          BINANCE_SECRET_KEY: ${{ secrets.BINANCE_SECRET_KEY }}
+  OKX_API_KEY: ${{ secrets.OKX_API_KEY }}
+  OKX_SECRET_KEY: ${{ secrets.OKX_SECRET_KEY }}
+  OKX_PASSPHRASE: ${{ secrets.OKX_PASSPHRASE }}
         run: |
           python3 scripts/check.py
       
