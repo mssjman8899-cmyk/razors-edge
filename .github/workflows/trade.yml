@@ -2,7 +2,7 @@ name: Razor's Edge 24/7
 
 on:
   schedule:
-    - cron: '*/55 * * * *'  # 每 55 分钟运行
+    - cron: '*/5 * * * *'  # 每 5 分钟运行
   workflow_dispatch:
 
 jobs:
