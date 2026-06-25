@@ -2,6 +2,7 @@
 """
 Razor's Edge — GitHub Actions 交易脚本
 每 5 分钟运行一次，检查持仓 + 开仓信号
+已修改为 OKX 交易所
 """
 import os, sys, time, json, yaml
 from datetime import datetime
@@ -23,20 +24,26 @@ os.chdir(PROJ)
 with open("config.yaml") as f:
     cfg = yaml.safe_load(f)
 
-api_key = os.getenv("BINANCE_API_KEY", "")
-secret = os.getenv("BINANCE_SECRET_KEY", "")
+# ✅ 改为 OKX 密钥
+api_key = os.getenv("OKX_API_KEY", "")
+secret = os.getenv("OKX_SECRET_KEY", "")
+passphrase = os.getenv("OKX_PASSPHRASE", "")
 
-if not api_key or not secret:
-    print("❌ 缺少 BINANCE_API_KEY 或 BINANCE_SECRET_KEY")
+if not api_key or not secret or not passphrase:
+    print("❌ 缺少 OKX_API_KEY、OKX_SECRET_KEY 或 OKX_PASSPHRASE")
     sys.exit(1)
 
-exchange = ccxt.binance({
-    "apiKey": api_key, "secret": secret,
+# ✅ 改为 OKX 交易所，使用永续合约
+exchange = ccxt.okx({
+    "apiKey": api_key,
+    "secret": secret,
+    "password": passphrase,
     "enableRateLimit": True,
-    "options": {"defaultType": "future"},
+    "options": {"defaultType": "swap"},
 })
 
-md = MarketData(exchange_id="binance", testnet=False)
+# ✅ 改为 OKX 数据源
+md = MarketData(exchange_id="okx", testnet=False)
 strat = RazorsEdgeStrategy(cfg)
 risk = RiskManager(cfg)
 
@@ -69,7 +76,7 @@ print(f"[{datetime.now().isoformat()}] 扫描 {SYMBOLS} | 持仓 {len(positions)
 for sym in list(positions.keys()):
     pos = positions[sym]
     try:
-        ticker = exchange.fetch_ticker(sym.replace("/", ""))
+        ticker = exchange.fetch_ticker(sym)
         current = float(ticker["last"])
     except Exception as e:
         print(f"  查询失败 {sym}: {e}")
@@ -87,7 +94,7 @@ for sym in list(positions.keys()):
         try:
             side = "sell" if pos["direction"] == "LONG" else "buy"
             order = exchange.create_order(
-                symbol=sym.replace("/", ""), type="market",
+                symbol=sym, type="market",
                 side=side, amount=pos["qty"],
                 params={"reduceOnly": True}
             )
@@ -149,7 +156,7 @@ for sym in SYMBOLS:
     try:
         side = "buy" if sig.direction == "LONG" else "sell"
         order = exchange.create_order(
-            symbol=sym.replace("/", ""), type="market",
+            symbol=sym, type="market",
             side=side, amount=qty
         )
         fill = float(order.get("average", sig.price)) if order.get("average") else sig.price
