@@ -13,3 +13,4 @@ trade_journal.jsonl
 dist/
 build/
 .pytest_cache/
+.venv/

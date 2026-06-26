@@ -43,8 +43,8 @@ trading:
   proxy: ""
   symbols:
     - "BTC/USDT"
-    - "ETH/USDT"               # 加 ETH
-  testnet: false              # 🔥 实盘模式
+    - "ETH/USDT"
+  testnet: false
   order_type: "market"
 
 display:

@@ -2,7 +2,7 @@
 Razor's Edge — 主交易机器人 v3
 合约模式 | 趋势过滤 | 真实下单 | 自动止盈止损
 
-⚠️ 实盘模式会真的在币安下单，谨慎使用。
+⚠️ 实盘模式会真的在交易所下单，谨慎使用。
 """
 import os
 import sys
@@ -50,7 +50,7 @@ class RazorsEdgeBot:
         with open(config_path) as f:
             self.config = yaml.safe_load(f)
 
-        self.exchange_id = self.config.get("trading", {}).get("exchange", "binance")
+        self.exchange_id = self.config.get("trading", {}).get("exchange", "okx")
         self.testnet = self.config.get("trading", {}).get("testnet", True)
         self.symbols = self.config.get("trading", {}).get("symbols", ["BTC/USDT"])
         self.timeframe = self.config.get("strategy", {}).get("timeframe", "5m")
@@ -60,39 +60,105 @@ class RazorsEdgeBot:
         self.leverage = self.config.get("account", {}).get("leverage", 5)
         self.direction_filter = self.config.get("strategy", {}).get("direction_filter", "")
 
-        api_key = os.getenv("BINANCE_API_KEY", "")
-        secret = os.getenv("BINANCE_SECRET_KEY", "")
+        api_key, secret, password = self._load_credentials()
 
         self.data = MarketData(
-            exchange_id=self.exchange_id, testnet=self.testnet, proxy=self.proxy,
+            exchange_id=self.exchange_id,
+            api_key=api_key,
+            secret=secret,
+            password=password,
+            testnet=self.testnet,
+            proxy=self.proxy,
         )
 
-        # 交易专用 exchange（期货）
-        exchange_params = {
-            "apiKey": api_key, "secret": secret,
-            "enableRateLimit": True,
-            "options": {"defaultType": "future"},
-        }
-        if self.proxy:
-            exchange_params["proxies"] = {"http": self.proxy, "https": self.proxy}
-
-        self.trade_exchange = ccxt.binance(exchange_params)
-        if self.testnet:
-            self.trade_exchange.set_sandbox_mode(True)
-            logger.info("🧪 期货模拟盘模式")
-        else:
-            logger.info("🔥 期货实盘模式")
+        self.trade_exchange = self._build_trade_exchange(api_key, secret, password)
 
         self.strategy = RazorsEdgeStrategy(self.config)
         self.risk = RiskManager(self.config)
 
         self.running = True
         self.last_signal_time: dict[str, datetime] = {}
-        # 订单跟踪: symbol → {"order_id": str, "entry_price": float, "qty": float, "direction": str, "sl": float, "tp": float}
         self.positions: dict[str, dict] = {}
 
         signal.signal(signal.SIGINT, self._shutdown)
         signal.signal(signal.SIGTERM, self._shutdown)
+
+    def _load_credentials(self) -> tuple[str, str, str]:
+        if self.exchange_id == "okx":
+            return (
+                os.getenv("OKX_API_KEY", ""),
+                os.getenv("OKX_SECRET_KEY", ""),
+                os.getenv("OKX_PASSPHRASE", ""),
+            )
+        return (
+            os.getenv("BINANCE_API_KEY", ""),
+            os.getenv("BINANCE_SECRET_KEY", ""),
+            "",
+        )
+
+    def _build_trade_exchange(self, api_key: str, secret: str, password: str):
+        if self.exchange_id == "okx":
+            params = {
+                "apiKey": api_key,
+                "secret": secret,
+                "password": password,
+                "enableRateLimit": True,
+                "options": {"defaultType": "swap"},
+            }
+            if self.proxy:
+                params["proxies"] = {"http": self.proxy, "https": self.proxy}
+            exchange = ccxt.okx(params)
+            exchange.set_sandbox_mode(bool(self.testnet))
+            logger.info("🧪 OKX 模拟盘模式" if self.testnet else "🔥 OKX 实盘模式")
+            return exchange
+
+        params = {
+            "apiKey": api_key,
+            "secret": secret,
+            "enableRateLimit": True,
+            "options": {"defaultType": "future"},
+        }
+        if self.proxy:
+            params["proxies"] = {"http": self.proxy, "https": self.proxy}
+        exchange = ccxt.binance(params)
+        if self.testnet:
+            exchange.set_sandbox_mode(True)
+            logger.info("🧪 币安期货模拟盘模式")
+        else:
+            logger.info("🔥 币安期货实盘模式")
+        return exchange
+
+    def _normalize_symbol(self, symbol: str) -> str:
+        if self.exchange_id == "okx":
+            return symbol if ":USDT" in symbol else f"{symbol}:USDT"
+        return symbol.replace("/", "")
+
+    def _entry_params(self) -> dict:
+        if self.exchange_id == "binance":
+            return {"positionSide": "BOTH"}
+        return {}
+
+    def _reduce_only_params(self) -> dict:
+        params = {"reduceOnly": True}
+        if self.exchange_id == "binance":
+            params["positionSide"] = "BOTH"
+        return params
+
+    def _set_symbol_leverage(self, symbol: str):
+        if self.exchange_id == "okx":
+            try:
+                market = self.trade_exchange.market(self._normalize_symbol(symbol))
+            except Exception:
+                self.trade_exchange.load_markets()
+                market = self.trade_exchange.market(self._normalize_symbol(symbol))
+            self.trade_exchange.set_leverage(
+                self.leverage,
+                market["symbol"],
+                params={"marginMode": "cross", "posSide": "net"},
+            )
+            return
+
+        self.trade_exchange.set_leverage(self.leverage, self._normalize_symbol(symbol))
 
     def _shutdown(self, signum, frame):
         logger.info("\n🛑 收到退出信号，平仓中...")
@@ -107,10 +173,9 @@ class RazorsEdgeBot:
         logger.info(f"交易对: {', '.join(self.symbols)} | TF: {self.timeframe}")
         logger.info(f"日目标: ${self.risk.daily_profit_target} | 日熔断: ${self.risk.max_daily_loss}")
 
-        # 设置杠杆
         for sym in self.symbols:
             try:
-                self.trade_exchange.set_leverage(self.leverage, sym.replace("/", ""))
+                self._set_symbol_leverage(sym)
             except Exception as e:
                 logger.warning(f"设置杠杆 {sym}: {e}")
 
@@ -151,7 +216,6 @@ class RazorsEdgeBot:
         except Exception:
             pass
 
-        # 已有持仓 → 检查止盈止损
         if symbol in self.positions:
             self._check_exit(symbol)
             return
@@ -190,21 +254,17 @@ class RazorsEdgeBot:
         logger.info(f"   理由: {signal.reason}")
 
     def _place_order(self, signal: Signal):
-        """真实下单到币安"""
         qty = self.risk.calculate_position_size(signal.price, signal.stop_loss)
         if qty <= 0:
             return
 
         try:
-            symbol_fmt = signal.symbol.replace("/", "")
-            side = "buy" if signal.direction == "LONG" else "sell"
-
             order = self.trade_exchange.create_order(
-                symbol=symbol_fmt,
+                symbol=self._normalize_symbol(signal.symbol),
                 type="market",
-                side=side,
+                side="buy" if signal.direction == "LONG" else "sell",
                 amount=qty,
-                params={"positionSide": "BOTH"},
+                params=self._entry_params(),
             )
 
             entry_price = float(order.get("average", signal.price)) if order.get("average") else signal.price
@@ -220,23 +280,23 @@ class RazorsEdgeBot:
             }
             self.last_signal_time[signal.symbol] = datetime.now()
 
-            # 也记录到本地风控
             trade = Trade(
-                entry_time=datetime.now(), symbol=signal.symbol,
-                direction=signal.direction, entry_price=entry_price,
-                quantity=qty, score=signal.score,
+                entry_time=datetime.now(),
+                symbol=signal.symbol,
+                direction=signal.direction,
+                entry_price=entry_price,
+                quantity=qty,
+                score=signal.score,
             )
             self.risk.open_trade(trade)
 
             notional = qty * entry_price
             logger.info(f"✅ 下单成功 {signal.symbol} {signal.direction} | {qty:.4f}张 @ ${entry_price:.2f} | 订单#{order_id}")
             logger.info(f"   名义=${notional:.0f} | 止损=${signal.stop_loss:.2f} | 止盈=${signal.take_profit:.2f}")
-
         except Exception as e:
             logger.error(f"❌ 下单失败 {signal.symbol}: {e}")
 
     def _check_exit(self, symbol: str):
-        """检查是否触及止盈止损"""
         pos = self.positions[symbol]
         current = self.data.get_current_price(symbol)
         if current <= 0:
@@ -256,11 +316,12 @@ class RazorsEdgeBot:
 
         if hit:
             try:
-                symbol_fmt = symbol.replace("/", "")
-                side = "sell" if pos["direction"] == "LONG" else "buy"
                 self.trade_exchange.create_order(
-                    symbol=symbol_fmt, type="market", side=side,
-                    amount=pos["qty"], params={"positionSide": "BOTH", "reduceOnly": True},
+                    symbol=self._normalize_symbol(symbol),
+                    type="market",
+                    side="sell" if pos["direction"] == "LONG" else "buy",
+                    amount=pos["qty"],
+                    params=self._reduce_only_params(),
                 )
 
                 pnl = (current - pos["entry_price"]) * pos["qty"]
@@ -271,9 +332,9 @@ class RazorsEdgeBot:
                 self.risk.capital += pnl
 
                 emoji = "🎯" if hit == "tp" else "🛑"
-                logger.info(f"{emoji} 平仓 {symbol} {pos['direction']} @ ${current:.2f} | "
-                            f"盈亏 ${pnl:+.2f} | 原因: {hit} | 日累计 ${self.risk.daily_pnl:+.2f}")
-
+                logger.info(
+                    f"{emoji} 平仓 {symbol} {pos['direction']} @ ${current:.2f} | 盈亏 ${pnl:+.2f} | 原因: {hit} | 日累计 ${self.risk.daily_pnl:+.2f}"
+                )
                 del self.positions[symbol]
             except Exception as e:
                 logger.error(f"❌ 平仓失败 {symbol}: {e}")
